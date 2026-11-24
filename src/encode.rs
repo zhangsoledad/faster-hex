@@ -544,8 +544,15 @@ fn encode_prefix_x86_simd<const UPPER: bool>(src: &[u8], dst: &mut [MaybeUninit<
     }
 }
 
+/// Initializes `dst` with one ASCII hex pair per source byte.
+///
+/// # Safety
+/// `dst` must contain exactly two elements for each byte of `src`.
 #[inline]
-pub(crate) fn encode_prefix_uninit<const UPPER: bool>(src: &[u8], dst: &mut [MaybeUninit<u8>]) {
+pub(crate) unsafe fn encode_prefix_uninit<const UPPER: bool>(
+    src: &[u8],
+    dst: &mut [MaybeUninit<u8>],
+) {
     debug_assert_eq!(src.len().checked_mul(2), Some(dst.len()));
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
@@ -630,9 +637,12 @@ pub(crate) fn encode_prefix<'a>(src: &[u8], dst: &'a mut [u8]) -> Result<&'a mut
     let output = dst
         .get_mut(..required)
         .ok_or(Error::OutputTooSmall { required })?;
-    // SAFETY: MaybeUninit<u8> has u8's layout and encode_prefix_uninit only writes ASCII.
-    let uninit = unsafe { core::slice::from_raw_parts_mut(output.as_mut_ptr().cast(), required) };
-    encode_prefix_uninit::<false>(src, uninit);
+    // SAFETY: `output` has exactly two bytes per source byte. The encoder writes
+    // ASCII into each one, preserving initialization through the MaybeUninit view.
+    unsafe {
+        let uninit = core::slice::from_raw_parts_mut(output.as_mut_ptr().cast(), required);
+        encode_prefix_uninit::<false>(src, uninit);
+    }
     // SAFETY: Every byte in `output` was initialized with ASCII hex digits.
     Ok(unsafe { core::str::from_utf8_unchecked_mut(output) })
 }
@@ -646,10 +656,12 @@ pub(crate) fn encode_prefix_odd<'a>(src: &[u8], dst: &'a mut [u8]) -> Result<&'a
     let output = dst
         .get_mut(..required)
         .ok_or(Error::OutputTooSmall { required })?;
-    // SAFETY: MaybeUninit<u8> has u8's layout and encode_prefix_uninit only writes ASCII.
-    let uninit =
-        unsafe { core::slice::from_raw_parts_mut(output.as_mut_ptr().cast(), pair_digits) };
-    encode_prefix_uninit::<false>(pairs, uninit);
+    // SAFETY: The first `pair_digits` bytes of `output` cover exactly the complete
+    // pairs. The encoder initializes every byte in that prefix with ASCII.
+    unsafe {
+        let uninit = core::slice::from_raw_parts_mut(output.as_mut_ptr().cast(), pair_digits);
+        encode_prefix_uninit::<false>(pairs, uninit);
+    }
     output[pair_digits] = PREFIX_PAIRS_LOWER.0[usize::from(last)][0];
     // SAFETY: encode_prefix_uninit wrote the complete pairs as ASCII, and the final
     // byte came from the ASCII pair table's high-nibble slot.

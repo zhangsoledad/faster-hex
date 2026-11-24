@@ -131,7 +131,8 @@ impl LeadingDigits<'_> {
         if bytes.len() <= 128 {
             let mut buffer = [MaybeUninit::uninit(); 256];
             let pair_digits = bytes.len() * 2;
-            encode_prefix_uninit::<UPPER>(bytes, &mut buffer[..pair_digits]);
+            // SAFETY: The selected buffer prefix has exactly two elements per byte.
+            unsafe { encode_prefix_uninit::<UPPER>(bytes, &mut buffer[..pair_digits]) };
             let visible = pair_digits - usize::from(self.omit_low_nibble);
             // SAFETY: `encode_prefix_uninit` initialized `..pair_digits` with ASCII hex
             // digits, and `visible <= pair_digits`.
@@ -154,7 +155,8 @@ impl LeadingDigits<'_> {
             let (chunk, tail) = remaining.split_at(remaining.len().min(buffer.len() / 2));
             remaining = tail;
             let pair_digits = chunk.len() * 2;
-            encode_prefix_uninit::<UPPER>(chunk, &mut buffer[..pair_digits]);
+            // SAFETY: The chunk fits half the buffer and `pair_digits` is twice its length.
+            unsafe { encode_prefix_uninit::<UPPER>(chunk, &mut buffer[..pair_digits]) };
             let trim = self.omit_low_nibble && remaining.is_empty();
             let visible = pair_digits - usize::from(trim);
             // SAFETY: `encode_prefix_uninit` initialized `..pair_digits` with ASCII hex
