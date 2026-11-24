@@ -60,3 +60,56 @@ fn valid_prefix_len<const CHUNK: usize>(src: &[u8]) -> usize {
 '''
         return s.replace(original,"        valid_prefix_len::<CHUNK>(src)").replace(anchor,helper+anchor)
     raise ValueError(mode)
+
+def apply_one_pass(validate, entry, mode):
+    # Retain each failing block's original offset in the first NEON scan.
+    s=code(validate,"direct")
+    helper_start=s.index("// Reuse the fixed-width classifier")
+    helper_end=s.index('#[cfg(any(target_arch = "x86"',helper_start)
+    s=s[:helper_start]+s[helper_end:]
+    s=s.replace("src.as_chunks::<CHUNK>().0.iter().take_while(|block| valid_diagnostic_block(block)).count() * CHUNK",
+                "src.chunks_exact(CHUNK).take_while(|block| check_mixed(block)).count() * CHUNK")
+    marker='#[cfg(target_arch = "aarch64")]\n#[inline]\n#[target_feature(enable = "neon")]\nunsafe fn check_mixed_neon(src:'
+    routine='''#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+#[inline]
+#[target_feature(enable = "neon")]
+pub(super) unsafe fn validate_neon_blocks<const WIDTH: usize>(src: &[u8]) -> Result<(), Error> {
+    let (blocks, tail) = src.as_chunks::<64>();
+    for (i, block) in blocks.iter().enumerate() {
+        if !valid_neon_block(block) {
+            return diagnose_block::<WIDTH>(block, i * 64);
+        }
+    }
+    if tail.is_empty() || check_mixed_neon_short(tail) {
+        Ok(())
+    } else {
+        diagnose_block::<WIDTH>(tail, src.len() - tail.len())
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+#[cold]
+#[inline(never)]
+fn diagnose_block<const WIDTH: usize>(block: &[u8], offset: usize) -> Result<(), Error> {
+    for (i, &byte) in block.iter().enumerate() {
+        if UNHEX[usize::from(byte)] == NIL {
+            return Err(Error::InvalidChar { index: offset + i, byte });
+        }
+    }
+    Ok(())
+}
+
+'''
+    if mode=="all_neon":
+        needle="    let (blocks, tail) = src.as_chunks::<64>();"
+        routine=routine.replace(needle,"    if src.len() < 64 {\n        return if check_mixed_neon_short(src) { Ok(()) } else { diagnose_block::<WIDTH>(src, 0) };\n    }\n"+needle)
+    s=s.replace(marker,routine+marker)
+    begin=entry.index("    if validate::check_mixed(src) {")
+    end=entry.index("\n}",begin)
+    old=entry[begin:end]
+    cfg='all(target_arch = "aarch64", target_feature = "neon", not(miri))'
+    if mode=="onepass":
+        new=f"    #[cfg({cfg})]\n    if src.len() >= 64 {{\n        // SAFETY: NEON is guaranteed by the target.\n        return unsafe {{ validate::validate_neon_blocks::<64>(src) }};\n    }}\n"+old
+    else:
+        new=f"    #[cfg({cfg})]\n    {{\n        // SAFETY: NEON is guaranteed by the target.\n        unsafe {{ validate::validate_neon_blocks::<64>(src) }}\n    }}\n    #[cfg(not({cfg}))]\n    {{\n"+old+"\n    }"
+    return s,entry[:begin]+new+entry[end:]
