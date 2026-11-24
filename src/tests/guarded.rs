@@ -173,6 +173,34 @@ fn owned_decode_tails_and_append_rollback_at_guard_pages() {
 }
 
 #[test]
+fn validation_stops_at_guard_pages() {
+    let mut source = Guarded::new();
+    for len in (0..=257).chain([1023, 1024, 1025]) {
+        for end in [false, true] {
+            let input = source.slice_mut(len, end);
+            for (i, byte) in input.iter_mut().enumerate() {
+                *byte = b"0aF9"[i % 4];
+            }
+            if !len.is_multiple_of(2) {
+                assert_eq!(crate::hex_validate(input), Err(Error::OddLength));
+                continue;
+            }
+            assert_eq!(crate::hex_validate(input), Ok(()));
+            if let Some(last) = input.last_mut() {
+                *last = b'!';
+                assert_eq!(
+                    crate::hex_validate(input),
+                    Err(Error::InvalidChar {
+                        index: len - 1,
+                        byte: b'!'
+                    })
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn conversions_and_checks_stop_at_guard_pages() {
     // None exercises the public boundary; Some directly exercises a kernel.
     let backends = std::iter::once(None).chain(crate::fuzzing::backends().map(Some));
