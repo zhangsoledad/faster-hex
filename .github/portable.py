@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib,json,math,os,random,shutil,statistics,subprocess,sys,tarfile
 mode, value=sys.argv[1:]
 root=Path.cwd()
-names=("a","b","decode","decode_all")
+names=("a","b","once","both")
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 if mode=="build":
     sys.argv[1:]=["0"]
@@ -27,7 +27,7 @@ for profile in ("thin","false"):
     assert sums=={n:digest(path/n) for n in names}
     shutil.copyfile(path/"hashes.json",results/(profile+"-hashes.json"))
     for n in ("a","b"):shutil.copy2(path/n,path/(n+n))
-    for cases,count,measurement_time in [([32],12,"0.55"),([16,64,4096],6,"0.35")]:
+    for cases,count,measurement_time in [([16,32,64,4096],10,"0.18")]:
         rng=random.Random(replica+741912+(profile=="thin")*991+cases[0])
         roles=[*names,"aa","bb"]
         rows={n:[] for n in cases}
@@ -37,7 +37,7 @@ for profile in ("thin","false"):
             values={n:{r:[] for r in roles} for n in cases}
             for key in order+order[::-1]:
                 stats=root/"criterion";env=dict(os.environ,CRITERION_HOME=str(stats))
-                subprocess.run([path/key,"--bench",pattern,"--warm-up-time","0.20","--measurement-time",measurement_time,"--sample-size","30","--noplot"],cwd=path,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+                subprocess.run([path/key,"--bench",pattern,"--warm-up-time","0.09","--measurement-time",measurement_time,"--sample-size","20","--nresamples","2000","--noplot"],cwd=path,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
                 for n in cases:
                     est, = stats.glob(f"**/byte_pairs/{n}/new/estimates.json")
                     values[n][key].append(json.loads(est.read_text())["mean"]["point_estimate"])
@@ -46,7 +46,7 @@ for profile in ("thin","false"):
                 measurement[profile+"/"+str(n)]=rows[n]
             (results/"raw.json").write_text(json.dumps(measurement))
         for n,series in rows.items():
-            pairs=[("a","aa"),("b","bb"),("a","b"),("a","decode"),("b","decode"),("a","decode_all"),("b","decode_all")]
+            pairs=[("a","aa"),("b","bb"),("a","b"),("a","once"),("b","once"),("a","both"),("b","both"),("once","both")]
             summary={}
             for x,y in pairs:
                 scores=[entry[y]/entry[x] for entry in series];k=sum(i>1 for i in scores);h=len(series)//2

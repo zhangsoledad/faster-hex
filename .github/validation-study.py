@@ -68,7 +68,14 @@ def binary(tag, ref):
             assert t.count("if validate::check_mixed(src) {")==1
             v.write_text(t.replace("if validate::check_mixed(src) {","if hex_check(src) {"))
         f.write_text(s)
-    if tag in ("lookup","sat","decode","decode_all"):
+    if tag in ("once", "both"):
+        f = source / "src/decode/validate.rs"
+        s = f.read_text()
+        anchor = "        let a = valid_avx2_mixed(_mm256_loadu_si256(src.as_ptr().cast()));"
+        assert s.count(anchor) == 1
+        s = s.replace(anchor, anchor + "\n        if len == 32 { return _mm256_movemask_epi8(a) == -1; }")
+        f.write_text(s)
+    if tag in ("lookup","sat","decode","decode_all","both"):
         f=source/"src/decode/validate.rs"
         s=f.read_text()
         start=s.index("    if len == 64 {",s.index("unsafe fn check_mixed_avx512<const"))
@@ -94,7 +101,7 @@ def binary(tag, ref):
             last=s.index("\n}",first)
             s=s[:first]+methods["decode"].replace("return ","").rstrip(";")+s[last:]
         else:
-            s=s[:at]+s[at:].replace(original,"        let bytes = _mm512_loadu_si512(src.as_ptr().cast());\n        "+methods[tag],1)
+            s=s[:at]+s[at:].replace(original,"        let bytes = _mm512_loadu_si512(src.as_ptr().cast());\n        "+methods["decode" if tag == "both" else tag],1)
         f.write_text(s)
     # Source revisions deliberately share a checkout path, dependency artifacts and lock.
     run(["cargo","clean","--release","-p","faster-hex"], source)
@@ -107,7 +114,7 @@ def binary(tag, ref):
     asm = run(["objdump","-d","--demangle","--no-show-raw-insn",str(path)])
     pieces=[chunk for chunk in asm.split("\n\n") if chunk and any(name in chunk.splitlines()[0] for name in ("check_mixed_avx512","hex_check_avx512_with_case","check_mixed_avx2"))]
     (results/(tag+".asm")).write_text("\n\n".join(pieces))
-    if tag in ("lookup","sat","decode","decode_all"):
+    if tag in ("lookup","sat","decode","decode_all","once","both"):
         with (source/"src/tests.rs").open("a") as tests:
             tests.write("""
 #[test]

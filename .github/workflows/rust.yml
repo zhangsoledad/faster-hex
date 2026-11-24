@@ -1,7 +1,7 @@
-name: Compare a single set of x86 binaries
+name: Check one load for one complete AVX2 vector
 on:
   push:
-    branches: [zhangsoledad/2.1-validation-portable]
+    branches: [zhangsoledad/2.1-single-vector-check]
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]
-        replica: [1, 2, 3, 4]
+        replica: [1, 2, 3]
     timeout-minutes: 30
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -48,11 +48,11 @@ jobs:
       run: |
         mkdir -p results
         lscpu > results/host.txt
-        if grep -qw avx512bw results/host.txt; then echo 'avx512=1' >> "$GITHUB_OUTPUT"; fi
+        if grep -qw avx2 results/host.txt; then echo 'supported=1' >> "$GITHUB_OUTPUT"; fi
     - uses: actions/download-artifact@v4
-      if: steps.cpu.outputs.avx512 == '1'
+      if: steps.cpu.outputs.supported == '1'
       with: {pattern: frozen-*, path: packaged, merge-multiple: true}
-    - if: steps.cpu.outputs.avx512 == '1'
+    - if: steps.cpu.outputs.supported == '1'
       run: python3 .github/portable.py measure ${{ matrix.replica }}
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
