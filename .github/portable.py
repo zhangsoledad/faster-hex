@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib,json,math,os,random,shutil,statistics,subprocess,sys,tarfile
 mode, value=sys.argv[1:]
 root=Path.cwd()
-names=("a","b","once","both")
+names=("a","b","f")
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 if mode=="build":
     sys.argv[1:]=["0"]
@@ -12,7 +12,7 @@ if mode=="build":
     exec(compile(source,"build-frozen-drive","exec"),ns)
     dest=root/value;dest.mkdir()
     for n in names:
-        binary=ns["binary"](n,ns["base" if n=="a" else "head"])
+        binary=ns["binary"](n,{"a":ns["base"],"b":ns["head"],"f":"8a4064cecd2f2cf9340293d3095290c8f8b67ca7"}[n])
         shutil.copy2(binary,dest/n)
     (dest/"hashes.json").write_text(json.dumps({n:digest(dest/n) for n in names}))
     with tarfile.open(root/(value+".tgz"),"w:gz",compresslevel=2) as tar:tar.add(dest,arcname=value)
@@ -26,10 +26,10 @@ for profile in ("thin","false"):
     sums=json.loads((path/"hashes.json").read_text())
     assert sums=={n:digest(path/n) for n in names}
     shutil.copyfile(path/"hashes.json",results/(profile+"-hashes.json"))
-    for n in ("a","b"):shutil.copy2(path/n,path/(n+n))
+    for n in names:shutil.copy2(path/n,path/(n+n))
     for cases,count,measurement_time in [([16,32,64,4096],10,"0.18")]:
         rng=random.Random(replica+741912+(profile=="thin")*991+cases[0])
-        roles=[*names,"aa","bb"]
+        roles=[*names,"aa","bb","ff"]
         rows={n:[] for n in cases}
         pattern="^check_valid/byte_pairs/("+("|".join(map(str,cases)))+")$"
         for block in range(count):
@@ -46,7 +46,7 @@ for profile in ("thin","false"):
                 measurement[profile+"/"+str(n)]=rows[n]
             (results/"raw.json").write_text(json.dumps(measurement))
         for n,series in rows.items():
-            pairs=[("a","aa"),("b","bb"),("a","b"),("a","once"),("b","once"),("a","both"),("b","both"),("once","both")]
+            pairs=[("a","aa"),("b","bb"),("f","ff"),("a","b"),("a","f"),("b","f")]
             summary={}
             for x,y in pairs:
                 scores=[entry[y]/entry[x] for entry in series];k=sum(i>1 for i in scores);h=len(series)//2
