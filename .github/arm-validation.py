@@ -8,6 +8,8 @@ def out(args,wd=root,env=None):return subprocess.check_output(args,cwd=wd,env=en
 (results/"host.txt").write_text(out(["lscpu"])+"\n"+out(["rustc","-Vv"]))
 refs={"a":"25cfd8eb6a4cd8257a96fabaf73771cabcced4b4","b":"848c4e239714cb3e2312abb9f38c2b3679439a0a","f":"0b23cd02c9dde1be5c94f077902ac12a4fb8dfef"}
 images={}
+from arm_variants import code
+for name in ("legacy","outline","direct","outdirect"):refs[name]=refs["b"]
 for p in ("false","thin"):
     td=work/("target-"+p)
     env=dict(os.environ,CARGO_PROFILE_RELEASE_LTO=p,CARGO_TARGET_DIR=str(td))
@@ -17,6 +19,9 @@ for p in ("false","thin"):
         if api.exists():shutil.rmtree(api)
         api.mkdir()
         with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(["git","archive",ref]))) as ar:ar.extractall(api,filter="data")
+        if k not in ("a","b","f"):
+            file=api/"src/decode/validate.rs"
+            file.write_text(code(file.read_text(),k))
         if not (app/"Cargo.lock").exists():out(["cargo","generate-lockfile"],app,env)
         if td.exists():out(["cargo","clean","--release","-p","faster-hex","-p","validation-caller"],app,env)
         data=out(["cargo","build","--release","--locked","--message-format=json"],app,env)
@@ -38,12 +43,12 @@ for p in ("false","thin"):
         rng=random.Random(int(sys.argv[1])*971+len(allrows)*1421)
         rows=[]
         for _ in range(20):
-            roles=["a","b","f","aa","bb","ff"];rng.shuffle(roles)
+            roles=["a","b","f","aa","bb","ff","legacy","outline","direct","outdirect"];rng.shuffle(roles)
             obs={k:[] for k in roles}
             for k in roles+roles[::-1]:obs[k].append(run(k,cnt))
             rows.append({k:statistics.mean(v) for k,v in obs.items()})
         key=p+"/"+str(n)+"/"+name;allrows[key]=rows;summary[key]={}
-        for left,right in (("a","aa"),("b","bb"),("f","ff"),("a","b"),("a","f"),("b","f")):
+        for left,right in [("a","aa"),("b","bb"),("f","ff"),("a","b"),("a","f"),("b","f")]+[(r,k) for k in ("legacy","outline","direct","outdirect") for r in ("a","b")]:
             v=[j[right]/j[left] for j in rows];pos=sum(x>1 for x in v)
             summary[key][right+"/"+left]=[round(100*(statistics.median(g)-1),3) for g in (v,v[:10],v[10:])]+[round(min(1,2*sum(math.comb(20,i) for i in range(min(pos,20-pos)+1))/2**20),5)]
         (results/"summary.json").write_text(json.dumps(summary,indent=2));(results/"raw.json").write_text(json.dumps(allrows))

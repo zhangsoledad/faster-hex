@@ -1,7 +1,7 @@
 name: Validate errors on native ARM
 on:
   push:
-    branches: [zhangsoledad/2.1-arm-validation]
+    branches: [zhangsoledad/2.1-arm-diagnostic-scan]
   workflow_dispatch:
 permissions: {contents: read}
 jobs:
