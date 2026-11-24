@@ -76,11 +76,17 @@ def binary(tag, ref):
     assert any(x.get("reason")=="compiler-artifact" and x["target"]["name"]=="faster_hex" and not x["fresh"] for x in objs)
     path=work/tag
     shutil.copy2(exe,path)
+    asm = run(["objdump","-d","--demangle","--no-show-raw-insn",str(path)])
+    pieces=[chunk for chunk in asm.split("\n\n") if chunk and any(name in chunk.splitlines()[0] for name in ("check_mixed_avx512","hex_check_avx512_with_case","check_mixed_avx2"))]
+    (results/(tag+".asm")).write_text("\n\n".join(pieces))
     return path
 
 hardware=run(["lscpu"] if sys.platform.startswith("linux") else ["sysctl","machdep.cpu.brand_string","machdep.cpu.features","machdep.cpu.leaf7_features"])
 (results/"host.txt").write_text(hardware+"\n"+run(["rustc","-Vv"]))
 print(hardware,flush=True)
+if "avx512bw" not in hardware.lower():
+    print("Host has already-covered AVX2; skipping the AVX-512-only study.",flush=True)
+    sys.exit(0)
 a = binary("a",base)
 b = binary("b",head)
 backend = run(["cargo","test","--locked","--lib","tests::feature_detection_matches_host","--","--exact","--nocapture"],source,stderr=subprocess.STDOUT)

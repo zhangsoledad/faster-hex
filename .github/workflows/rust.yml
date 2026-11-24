@@ -2,7 +2,7 @@ name: Native validation diagnosis
 on:
   workflow_dispatch:
   push:
-    branches: [zhangsoledad/2.1-validation-cause]
+    branches: [zhangsoledad/2.1-avx512-review]
 permissions:
   contents: read
 env:
@@ -16,10 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, replica: 1 }
-          - { os: ubuntu-24.04, replica: 2 }
-          - { os: ubuntu-24.04, replica: 3 }
-          - { os: macos-15-intel, replica: 4 }
+          - { os: ubuntu-22.04, replica: 5 }
+          - { os: ubuntu-22.04, replica: 6 }
+          - { os: ubuntu-24.04, replica: 7 }
+          - { os: ubuntu-24.04, replica: 8 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
