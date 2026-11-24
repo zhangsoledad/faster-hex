@@ -27,7 +27,7 @@ def run(args, cwd=root, **kw):
 
 def extract(ref):
     if subprocess.run(["git","cat-file","-e",ref+"^{commit}"],capture_output=True).returncode:
-        run(["git","fetch","--no-tags","origin",ref])
+        run(["git","fetch","--no-tags","https://github.com/nervosnetwork/faster-hex.git",ref])
     if source.exists():
         shutil.rmtree(source)
     source.mkdir()
@@ -35,7 +35,7 @@ def extract(ref):
     with tarfile.open(fileobj=io.BytesIO(data)) as ar:
         ar.extractall(source, filter="data")
 
-def binary(tag, ref, mask=False, cold=True):
+def binary(tag, ref):
     extract(ref)
     if (work / "Cargo.lock").exists():
         shutil.copyfile(work / "Cargo.lock", source / "Cargo.lock")
@@ -46,18 +46,28 @@ def binary(tag, ref, mask=False, cold=True):
         shutil.copytree(source / "benches",work / "benches")
     else:
         shutil.copytree(work / "benches",source / "benches",dirs_exist_ok=True)
-    if mask:
-        f = source / "src/lib.rs"
-        s = f.read_text()
-        before = "return Vectorization::AVX512;"
-        assert s.count(before) == 2
-        f.write_text(s.replace(before,"return Vectorization::AVX2;"))
-    if not cold:
+    if tag in ("nospecial","narrow","old512","shared","oldfast"):
         f = source / "src/decode/validate.rs"
-        before = "#[cold]\n#[inline(always)]\npub(super) fn diagnose_invalid"
         s = f.read_text()
-        assert s.count(before) == 1
-        f.write_text(s.replace(before,before.removeprefix("#[cold]\n")))
+        at = s.index("unsafe fn check_mixed_avx512<const _WIDTH: usize>")
+        begin = s.index("    if len == 64 {",at)
+        end = s.index("    if len < 64 {",begin)
+        if tag == "nospecial": s = s[:begin]+s[end:]
+        if tag == "narrow": s = s[:begin]+"    if len == 64 { return check_mixed_avx2::<32>(src); }\n"+s[end:]
+        if tag == "old512":
+            old = "unsafe { check_mixed_avx512::<64>(src) }"
+            assert s.count(old)==1
+            s = s.replace(old,"unsafe { super::x86::hex_check_avx512_with_case(src, CheckCase::None) }")
+        if tag == "shared":
+            tail=s.index("    let (blocks, tail)",end)
+            close=s.index("\n}",tail)
+            s=s[:begin]+s[end:tail]+"    super::x86::hex_check_avx512_with_case(src, CheckCase::None)"+s[close:]
+        if tag == "oldfast":
+            v=source/"src/decode.rs"
+            t=v.read_text()
+            assert t.count("if validate::check_mixed(src) {")==1
+            v.write_text(t.replace("if validate::check_mixed(src) {","if hex_check(src) {"))
+        f.write_text(s)
     # Source revisions deliberately share a checkout path, dependency artifacts and lock.
     run(["cargo","clean","--release","-p","faster-hex"], source)
     compiled = run(["cargo","bench","--locked","--bench","check","--no-run","--message-format=json"],source)
@@ -76,12 +86,12 @@ b = binary("b",head)
 backend = run(["cargo","test","--locked","--lib","tests::feature_detection_matches_host","--","--exact","--nocapture"],source,stderr=subprocess.STDOUT)
 (results/"backend.txt").write_text(backend)
 print("\n".join(l for l in backend.splitlines() if "backend" in l),flush=True)
-paths={"a":a,"b":b,"precold":binary("precold",head,cold=False)}
-# Only mask features actually detected by faster-hex. All SIMD entry points keep OS checks.
+paths={"a":a,"b":b}
 if "selected backend: AVX512" in backend:
-    paths.update(avx2a=binary("avx2a",base,mask=True),avx2b=binary("avx2b",head,mask=True))
-    masked=run(["cargo","test","--locked","--lib","tests::feature_detection_matches_host","--","--exact","--nocapture"],source,stderr=subprocess.STDOUT)
-    assert "selected backend: AVX2" in masked
+    for k in ("nospecial","narrow","old512","shared","oldfast"):
+        paths[k]=binary(k,head)
+else:
+    paths["oldfast"]=binary("oldfast",head)
 for tag in ["a","b"]:
     paths[tag*2]=work/(tag*2)
     shutil.copy2(paths[tag],paths[tag*2])
@@ -99,8 +109,7 @@ def timed(tag):
     e,=criterion.glob("**/new/estimates.json")
     return json.loads(e.read_text())["mean"]["point_estimate"]
 def summarize():
-    pairs=[("a","aa"),("b","bb"),("a","b"),("precold","b")]
-    if "avx2b" in paths: pairs += [("avx2a","avx2b"),("avx2a","a"),("avx2b","b")]
+    pairs=[("a","aa"),("b","bb"),("a","b")]+[(r,k) for k in paths if k not in ("a","b","aa","bb") for r in ("a","b")]
     summary={}
     for left,right in pairs:
         ratios=[r[right]/r[left] for r in rows]
