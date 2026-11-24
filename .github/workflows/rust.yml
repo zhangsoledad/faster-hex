@@ -1,6 +1,8 @@
 name: Native validation diagnosis
 on:
   workflow_dispatch:
+  push:
+    branches: [zhangsoledad/2.1-validation-cause]
 permissions:
   contents: read
 env:
