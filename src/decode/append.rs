@@ -21,12 +21,13 @@ use super::{aarch64, CheckCase};
 use super::{x86, CheckCase};
 use super::{NIL, UNHEX};
 
-// Decodes `src` into `dst` (where `src.len() == dst.len() * 2`).
-// Returns `Ok(())` only after initializing every element of `dst`.
-// On `Err(from)`, `from` is even, `from <= src.len()`, `src[..from]` is valid,
-// and `dst[..from / 2]` is already initialized.
+/// Initializes all of `dst` on success. On failure, the returned even offset
+/// starts the first failing block. All preceding pairs have been decoded.
+///
+/// # Safety
+/// `src` must contain exactly two bytes for each element of `dst`.
 #[inline]
-pub(super) fn decode_uninit(src: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), usize> {
+pub(super) unsafe fn decode_uninit(src: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), usize> {
     debug_assert_eq!(dst.len().checked_mul(2), Some(src.len()));
     if dst.len() < 8 {
         return decode_scalar_uninit(src, dst);
