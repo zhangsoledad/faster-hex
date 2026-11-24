@@ -1,13 +1,43 @@
-name: Check 2.1 release encoding on Xeon 8573C
+name: Isolate Xeon encoding layout and CPU affinity
 on:
   push:
-    branches: [zhangsoledad/verify-2.1-final]
+    branches: [zhangsoledad/verify-xeon-encoding-layout]
   workflow_dispatch:
 permissions:
-  actions: read
   contents: read
+  actions: read
+env:
+  RUSTUP_TOOLCHAIN: 1.95.0
+  CARGO_INCREMENTAL: '0'
 jobs:
-  verify:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {repository: nervosnetwork/ckb, ref: 2061bc092a5dd447a741fad03b02628203b35e96, path: ckb, persist-credentials: false}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {repository: GitoxideLabs/gitoxide, ref: a7e739482cd6fe357ca8ebdbf82da5f1945e3e38, path: gitoxide, persist-credentials: false}
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+        with: {toolchain: 1.95.0}
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45424523993
+          name: binaries-X64-thin
+      - run: |
+          mkdir references
+          tar -xzf thin.tgz -C references
+          python3 .github/release-verify/build_layout.py thin
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: link-input-study
+          path: relocations
+          retention-days: 1
+  measure:
+    needs: build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -16,7 +46,6 @@ jobs:
         worker: [1, 2, 3]
     steps:
       - id: cpu
-        name: Select the original CPU model
         run: |
           model=$(LC_ALL=C lscpu | sed -n 's/^Model name:[[:space:]]*//p')
           echo "$model"
@@ -28,22 +57,17 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/download-artifact@v4
         if: steps.cpu.outputs.matched == 'true'
-        with:
-          run-id: 45424523993
-          github-token: ${{ github.token }}
-          name: binaries-X64-thin
-      - if: steps.cpu.outputs.matched == 'true'
-        name: Compare identical launch paths for the 2.0.0 and 2.1.0 applications
-        run: |
-          tar -xzf thin.tgz
-          python3 .github/release-verify/xeon-release.py
+        with: {name: link-input-study, path: relocations}
+      - name: Cross fixed and unrestricted CPU masks with the two link layouts
+        if: steps.cpu.outputs.matched == 'true'
         env:
           REPLICA: ${{ matrix.worker }}
+        run: |
+          chmod +x relocations/{published,latest}/{native,swapped}
+          python3 .github/release-verify/measure_layout.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: steps.cpu.outputs.matched == 'true'
+        if: always() && steps.cpu.outputs.matched == 'true'
         with:
-          name: xeon-${{ matrix.os }}-${{ matrix.worker }}
-          path: |
-            samples/host.txt
-            samples/*.json
+          name: layout-${{ matrix.os }}-${{ matrix.worker }}
+          path: affinity-report
           retention-days: 3
