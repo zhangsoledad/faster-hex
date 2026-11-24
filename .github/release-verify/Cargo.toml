@@ -1,0 +1,11 @@
+[package]
+name="real-hex-consumers"
+version="0.1.0"
+edition="2024"
+[workspace]
+[dependencies]
+ckb-jsonrpc-types={path="../ckb/util/jsonrpc-types"}
+faster-hex="=2.1.0"
+gix-hash={path="../gitoxide/gix-hash",features=["sha1","sha256","serde"]}
+serde_json="1"
+serde = { version = "=1.0.229", features = ["derive"] }

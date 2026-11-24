@@ -1,0 +1,24 @@
+--- a/gix-hash/src/prefix.rs
++++ b/gix-hash/src/prefix.rs
+@@ -46,17 +46,10 @@
+     #[inline]
+     #[must_use]
+     pub fn hex_to_buf<'a>(&self, buf: &'a mut [u8]) -> &'a mut str {
+-        let complete_bytes = self.hex_len / 2;
+-        let complete_hex_len = complete_bytes * 2;
+-        if complete_bytes != 0 {
+-            faster_hex::hex_encode(&self.bytes.as_bytes()[..complete_bytes], &mut buf[..complete_hex_len])
+-                .expect("buffer size was checked before encoding");
+-        }
+-        if self.hex_len % 2 == 1 {
+-            const HEX: &[u8; 16] = b"0123456789abcdef";
+-            buf[complete_hex_len] = HEX[usize::from(self.bytes.as_bytes()[complete_bytes] >> 4)];
+-        }
+-        std::str::from_utf8_mut(&mut buf[..self.hex_len]).expect("hexadecimal object IDs are valid UTF-8")
++        faster_hex::Hex::new(self.as_oid().as_bytes())
++            .leading_digits(self.hex_len())
++            .encode_to(buf)
++            .expect("buffer too small for hex prefix")
+     }
+ 
+     /// Write this prefix to `out` as lowercase hexadecimal characters.
