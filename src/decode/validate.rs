@@ -32,7 +32,7 @@ pub(super) fn check_mixed(src: &[u8]) -> bool {
                 // SAFETY: Dispatch checked SSE4.1 (which implies SSE2).
                 unsafe { check_mixed_sse::<16>(src) }
             }
-            crate::Vectorization::None => check_mixed_fallback::<1>(src),
+            crate::Vectorization::None => hex_check_fallback_with_case(src, CheckCase::None),
         }
     }
     #[cfg(target_arch = "aarch64")]
@@ -41,7 +41,7 @@ pub(super) fn check_mixed(src: &[u8]) -> bool {
             // SAFETY: Dispatch checked NEON.
             unsafe { check_mixed_neon(src) }
         } else {
-            check_mixed_fallback::<1>(src)
+            hex_check_fallback_with_case(src, CheckCase::None)
         }
     }
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
@@ -50,19 +50,9 @@ pub(super) fn check_mixed(src: &[u8]) -> bool {
     }
 }
 
-// Generic so 2.0-only callers never emit it, and `#[cold] #[inline(never)]` so
-// ThinLTO does not pull `UNHEX` into SIMD caller loops.
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
-#[cold]
-#[inline(never)]
-fn check_mixed_fallback<const _WIDTH: usize>(src: &[u8]) -> bool {
-    hex_check_fallback_with_case(src, CheckCase::None)
-}
-
-// Inline into `hex_validate` as a cold branch so valid hot loops keep `UNHEX`
-// out of the loop without forming a cross-call result dependency or `sret`
-// frame, and first-pair failures avoid a cold call.
-#[cold]
+// Inline into `hex_validate` without `#[cold]` so valid hot loops keep zero
+// caller register spills and late-error diagnosis keeps SIMD chunk-skipping and
+// 4-byte group scans inlined.
 #[inline(always)]
 pub(super) fn diagnose_invalid(src: &[u8]) -> Result<(), Error> {
     const CHUNK: usize = 64;
