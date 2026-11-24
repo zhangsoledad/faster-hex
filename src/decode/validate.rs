@@ -59,10 +59,9 @@ fn check_mixed_fallback<const _WIDTH: usize>(src: &[u8]) -> bool {
     hex_check_fallback_with_case(src, CheckCase::None)
 }
 
-// Inline into `hex_validate` as a cold branch so valid hot loops keep `UNHEX`
-// out of the loop without forming a cross-call result dependency or `sret`
-// frame, and first-pair failures avoid a cold call.
-#[cold]
+// On x86, keep the lookup table out of the valid-input loop. Marking this
+// branch cold on AArch64 slows the block scan for errors near the end.
+#[cfg_attr(not(target_arch = "aarch64"), cold)]
 #[inline(always)]
 pub(super) fn diagnose_invalid(src: &[u8]) -> Result<(), Error> {
     const CHUNK: usize = 64;
