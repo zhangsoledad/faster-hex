@@ -1,62 +1,26 @@
-name: Compare a single set of x86 binaries
+name: Validate errors on native ARM
 on:
   push:
-    branches: [zhangsoledad/2.1-validation-portable]
+    branches: [zhangsoledad/2.1-arm-validation]
   workflow_dispatch:
-permissions:
-  contents: read
-env:
-  RUSTUP_TOOLCHAIN: 1.95.0
-  CARGO_INCREMENTAL: '0'
+permissions: {contents: read}
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    name: Build the frozen driver / ${{ matrix.profile }}
+  arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
     strategy:
-      matrix:
-        profile: [thin, 'false']
+      fail-fast: false
+      matrix: {replica: [1, 2]}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       with: {fetch-depth: 0, persist-credentials: false}
     - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
       with: {toolchain: 1.95.0}
-    - run: python3 .github/portable.py build ${{ matrix.profile }}
-      env:
-        CARGO_PROFILE_BENCH_LTO: ${{ matrix.profile }}
-    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-      with:
-        name: frozen-${{ matrix.profile }}
-        path: ${{ matrix.profile }}.tgz
-        retention-days: 1
-        compression-level: 0
-  measure:
-    needs: build
-    runs-on: ${{ matrix.os }}
-    name: Compare / ${{ matrix.os }} / ${{ matrix.replica }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-        replica: [1, 2, 3, 4]
-    timeout-minutes: 30
-    steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      with: {persist-credentials: false}
-    - name: Check host capabilities
-      id: cpu
-      shell: bash
-      run: |
-        mkdir -p results
-        lscpu > results/host.txt
-        if grep -qw avx512bw results/host.txt; then echo 'avx512=1' >> "$GITHUB_OUTPUT"; fi
-    - uses: actions/download-artifact@v4
-      if: steps.cpu.outputs.avx512 == '1'
-      with: {pattern: frozen-*, path: packaged, merge-multiple: true}
-    - if: steps.cpu.outputs.avx512 == '1'
-      run: python3 .github/portable.py measure ${{ matrix.replica }}
+    - run: python3 .github/arm-validation.py ${{ matrix.replica }}
+      env: {RUSTUP_TOOLCHAIN: 1.95.0, CARGO_INCREMENTAL: '0'}
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
       with:
-        name: portable-${{ matrix.os }}-${{ matrix.replica }}
+        name: arm-results-${{ matrix.replica }}
         path: results
         retention-days: 3
