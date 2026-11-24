@@ -68,6 +68,34 @@ def binary(tag, ref):
             assert t.count("if validate::check_mixed(src) {")==1
             v.write_text(t.replace("if validate::check_mixed(src) {","if hex_check(src) {"))
         f.write_text(s)
+    if tag in ("lookup","sat","decode","decode_all"):
+        f=source/"src/decode/validate.rs"
+        s=f.read_text()
+        start=s.index("    if len == 64 {",s.index("unsafe fn check_mixed_avx512<const"))
+        at=s.index("        return valid_avx512_mixed(_mm512_loadu_si512(src.as_ptr().cast()));",start)
+        original=s[at:s.index("\n",at)]
+        methods={
+            "lookup": """let low = _mm_setr_epi8(1,3,3,3,3,3,3,1,1,1,0,0,0,0,0,0);
+        let high = _mm_setr_epi8(0,0,0,1,2,0,2,0,0,0,0,0,0,0,0,0);
+        let tags = _mm512_shuffle_epi8(_mm512_broadcast_i32x4(low), bytes);
+        let hi = _mm512_and_si512(_mm512_srli_epi16::<4>(bytes), _mm512_set1_epi8(15));
+        let ranges = _mm512_shuffle_epi8(_mm512_broadcast_i32x4(high), hi);
+        return _mm512_testn_epi8_mask(tags,ranges)==0;""",
+            "sat": """let digit = _mm512_subs_epu8(_mm512_sub_epi8(bytes,_mm512_set1_epi8(b'0' as i8)),_mm512_set1_epi8(9));
+        let fold = _mm512_or_si512(bytes,_mm512_set1_epi8(0x20));
+        let letter = _mm512_subs_epu8(_mm512_sub_epi8(fold,_mm512_set1_epi8(b'a' as i8)),_mm512_set1_epi8(5));
+        let bad = _mm512_min_epu8(digit,letter);
+        return _mm512_test_epi8_mask(bad,bad)==0;""",
+            "decode": """let (_, checked) = super::x86::decode_avx512_nibbles(bytes,CheckCase::None);
+        return _mm512_movepi8_mask(checked)==0;""",
+        }
+        if tag=="decode_all":
+            first=s.index("    let digit =",s.index("unsafe fn valid_avx512_mixed"))
+            last=s.index("\n}",first)
+            s=s[:first]+methods["decode"].replace("return ","").rstrip(";")+s[last:]
+        else:
+            s=s[:at]+s[at:].replace(original,"        let bytes = _mm512_loadu_si512(src.as_ptr().cast());\n        "+methods[tag],1)
+        f.write_text(s)
     # Source revisions deliberately share a checkout path, dependency artifacts and lock.
     run(["cargo","clean","--release","-p","faster-hex"], source)
     compiled = run(["cargo","bench","--locked","--bench","check","--no-run","--message-format=json"],source)
@@ -79,6 +107,30 @@ def binary(tag, ref):
     asm = run(["objdump","-d","--demangle","--no-show-raw-insn",str(path)])
     pieces=[chunk for chunk in asm.split("\n\n") if chunk and any(name in chunk.splitlines()[0] for name in ("check_mixed_avx512","hex_check_avx512_with_case","check_mixed_avx2"))]
     (results/(tag+".asm")).write_text("\n\n".join(pieces))
+    if tag in ("lookup","sat","decode","decode_all"):
+        with (source/"src/tests.rs").open("a") as tests:
+            tests.write("""
+#[test]
+fn native_classification() {
+    for n in [32, 64, 66, 126, 128, 130, 1024] {
+        let mut input = vec![b'F'; n];
+        for i in 0..n {
+            for value in 0..=255u8 {
+                input[i]=value;
+                match crate::hex_validate(&input) {
+                    Ok(()) => assert!(value.is_ascii_hexdigit()),
+                    Err(crate::Error::InvalidChar { index, byte }) => {
+                        assert!(!value.is_ascii_hexdigit());
+                        assert_eq!((index,byte),(i,value));
+                    },
+                    other=>panic!("{other:?}"),
+                }
+            }
+            input[i]=b'F';
+        }
+    }
+}""")
+        run(["cargo","test","--release","--locked","--lib","tests::native_classification","--","--exact"],source)
     return path
 
 hardware=run(["lscpu"] if sys.platform.startswith("linux") else ["sysctl","machdep.cpu.brand_string","machdep.cpu.features","machdep.cpu.leaf7_features"])
@@ -94,7 +146,7 @@ backend = run(["cargo","test","--locked","--lib","tests::feature_detection_match
 print("\n".join(l for l in backend.splitlines() if "backend" in l),flush=True)
 paths={"a":a,"b":b}
 if "selected backend: AVX512" in backend:
-    for k in ("nospecial","narrow","old512","shared","oldfast"):
+    for k in ("lookup","sat","decode","decode_all"):
         paths[k]=binary(k,head)
 else:
     paths["oldfast"]=binary("oldfast",head)
