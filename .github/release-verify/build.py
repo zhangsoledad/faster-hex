@@ -1,4 +1,4 @@
-import hashlib,json,os,shutil,subprocess,sys,tarfile,tomllib
+import hashlib,json,os,re,shutil,subprocess,sys,tarfile
 from pathlib import Path
 root=Path.cwd(); tools=Path(__file__).resolve().parent
 head='8a4064cecd2f2cf9340293d3095290c8f8b67ca7'
@@ -8,7 +8,7 @@ assert prof in ('default','thin')
 app=root/'caller'; src=root/'package-source';vendor=root/'vendor'
 (app/'src/bin').mkdir(parents=True);shutil.copytree(tools/'bin',app/'src/bin',dirs_exist_ok=True)
 template=(tools/'Cargo.toml').read_text();lock=(tools/'Cargo.lock').read_text()
-oldck,=[x['checksum'] for x in tomllib.loads(lock)['package'] if x['name']=='faster-hex' and x['version']=='2.1.0']
+oldck,=re.findall(r'name = "faster-hex"\nversion = "2\.1\.0"\nsource = "[^"]+"\nchecksum = "([0-9a-f]{64})"',lock)
 def resolve(ver,ck):
     (app/'Cargo.toml').write_text(template.replace('"=2.1.0"','"='+ver+'"'))
     (app/'Cargo.lock').write_text(lock.replace('name = "faster-hex"\nversion = "2.1.0"','name = "faster-hex"\nversion = "'+ver+'"').replace('"faster-hex 2.1.0"','"faster-hex '+ver+'"').replace(oldck,ck))
