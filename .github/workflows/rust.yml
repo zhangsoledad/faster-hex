@@ -20,7 +20,10 @@ jobs:
           - {os: ubuntu-24.04, replica: 1}
           - {os: ubuntu-24.04, replica: 2}
           - {os: ubuntu-24.04, replica: 3}
+          - {os: ubuntu-24.04, replica: 4}
+          - {os: ubuntu-24.04, replica: 5}
           - {os: ubuntu-22.04, replica: 1}
+          - {os: ubuntu-22.04, replica: 2}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -29,7 +32,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: 1.95.0
-      - run: python3 .github/release-timing/repeat.py
+      - name: Repeat only on the two original small-difference CPU models
+        run: |
+          if grep -Ei -q 'model name.*(8573C|EPYC 9V45)' /proc/cpuinfo; then
+            python3 .github/release-timing/repeat.py
+          else
+            mkdir -p release-report
+            python3 -c 'import json, platform; from pathlib import Path; cpu = next(x.split(":",1)[-1].strip() for x in Path("/proc/cpuinfo").read_text().splitlines() if x.startswith("model name")); Path("release-report/runner.json").write_text(json.dumps({"skipped_cpu":cpu}))'
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
