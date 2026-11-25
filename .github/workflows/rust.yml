@@ -1,8 +1,7 @@
-name: Verify 2.1 source performance on native x86
+name: Repeat 4 KiB timings with identical-binary controls
 on:
   push:
     branches: [zhangsoledad/verify-2.1-cpuid]
-  workflow_dispatch:
 permissions:
   contents: read
 env:
@@ -10,23 +9,18 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: never
 jobs:
-  compare:
-    name: ${{ matrix.os }} / LTO ${{ matrix.lto }} / ${{ matrix.replica }}
+  repeat:
+    name: ${{ matrix.os }} / sample ${{ matrix.replica }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, lto: thin, replica: 1}
-          - {os: ubuntu-24.04, lto: thin, replica: 2}
-          - {os: ubuntu-22.04, lto: thin, replica: 1}
-          - {os: ubuntu-22.04, lto: "false", replica: 1}
-          - {os: ubuntu-24.04, lto: "false", replica: 1}
-          - {os: ubuntu-24.04, lto: thin, replica: 3, intel: "yes"}
-          - {os: ubuntu-22.04, lto: thin, replica: 2, intel: "yes"}
-    env:
-      CARGO_PROFILE_BENCH_LTO: ${{ matrix.lto }}
+          - {os: ubuntu-24.04, replica: 1}
+          - {os: ubuntu-24.04, replica: 2}
+          - {os: ubuntu-24.04, replica: 3}
+          - {os: ubuntu-22.04, replica: 1}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -35,19 +29,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: 1.95.0
-      - name: Compare 2.0 and the exact candidate on one CPU with previous regression as a control
-        env:
-          INTEL_ONLY: ${{ matrix.intel }}
-        run: |
-          if [[ "$INTEL_ONLY" == "yes" ]] && ! grep -q GenuineIntel /proc/cpuinfo; then
-            mkdir -p release-report
-            echo '{"skipped":"extra Intel-only sample on a non-Intel host"}' > release-report/runner.json
-          else
-            python3 .github/release-timing/compare.py
-          fi
+      - run: python3 .github/release-timing/repeat.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: recheck-${{ matrix.os }}-${{ matrix.lto }}-${{ matrix.replica }}
+          name: repeat-${{ matrix.os }}-${{ matrix.replica }}
           path: release-report/*.json
           retention-days: 3
