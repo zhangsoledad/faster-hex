@@ -10,7 +10,7 @@ import tempfile
 
 BASE = "6d84260fe321669e7f93ecfb8aecb4db0f582f14"
 BAD = "ca43f97fdde37c3b14882644c74469e78d6bce05"
-HEAD = "56606a3eee0a33e95c54484d908220e1d4bfc26d"
+HEAD = "fce8933a33c59a1ca0b3e23f3d78ef1a0367b3d0"
 ROOT = Path.cwd()
 TOOLS = ROOT / ".github/release-timing"
 REPORT = ROOT / "release-report"
