@@ -11,16 +11,18 @@ env:
   CARGO_TERM_COLOR: never
 jobs:
   compare:
-    name: ${{ matrix.os }} / LTO ${{ matrix.lto }}
+    name: ${{ matrix.os }} / ThinLTO / ${{ matrix.replica }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-        lto: ["false", "thin"]
+        include:
+          - {os: ubuntu-24.04, replica: 1}
+          - {os: ubuntu-24.04, replica: 2}
+          - {os: ubuntu-22.04, replica: 1}
     env:
-      CARGO_PROFILE_BENCH_LTO: ${{ matrix.lto }}
+      CARGO_PROFILE_BENCH_LTO: thin
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -29,11 +31,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: 1.95.0
-      - name: Build the frozen callers and compare on one CPU
-        run: python3 .github/release-timing/compare.py
+      - name: Exchange only the cold feature probe and time four binaries on one CPU
+        run: python3 .github/release-timing/diagnose.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: source-${{ matrix.os }}-${{ matrix.lto }}
+          name: control-${{ matrix.os }}-${{ matrix.replica }}
           path: release-report/*.json
           retention-days: 3
