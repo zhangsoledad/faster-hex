@@ -9,7 +9,8 @@ import subprocess
 import tempfile
 
 BASE = "6d84260fe321669e7f93ecfb8aecb4db0f582f14"
-HEAD = "ca43f97fdde37c3b14882644c74469e78d6bce05"
+BAD = "ca43f97fdde37c3b14882644c74469e78d6bce05"
+HEAD = "56606a3eee0a33e95c54484d908220e1d4bfc26d"
 ROOT = Path.cwd()
 TOOLS = ROOT / ".github/release-timing"
 REPORT = ROOT / "release-report"
@@ -18,7 +19,7 @@ CASES = {
         "encode/faster_hex", "decode/faster_hex_mixed"
     )] + ["decode_array/faster_hex/32"],
     "serde": [f"serde_json/{op}/{n}" for n in (32, 4096)
-              for op in ("serialize_reuse", "deserialize", "deserialize_escaped")],
+              for op in ("serialize_reuse", "serialize_text_reuse", "deserialize", "deserialize_escaped")],
 }
 DRIVERS = [*CASES, "array_read_slice"]
 
@@ -40,9 +41,12 @@ def build(work):
     shutil.copyfile(TOOLS / "release.lock", project / "Cargo.lock")
     shutil.copyfile(TOOLS / "array_read_slice.rs", project / "benches/array_read_slice.rs")
     env = dict(os.environ, CARGO_TARGET_DIR=str(work / "target"))
-    for role, rev in (("base", BASE), ("head", HEAD)):
-        if role == "head":
-            (project / "src").rename(work / "baseline-src")
+    roles = [("base", BASE), ("head", HEAD)]
+    if os.environ["CARGO_PROFILE_BENCH_LTO"] == "thin":
+        roles.append(("bad", BAD))
+    for role, rev in roles:
+        if role != "base":
+            (project / "src").rename(work / ("saved-before-" + role))
             archive(rev, project, "src")
             for source in (project / "src").rglob("*.rs"):
                 source.touch()
@@ -59,6 +63,11 @@ def build(work):
         for name, item in artifacts.items():
             shutil.copy2(item["executable"], dest / name)
         print(role, rev, "built at", project, flush=True)
+    import layout
+    (REPORT / "layout.json").write_text(json.dumps({
+        role: {name: layout.compare(work / "base" / name, work / role / name) for name in DRIVERS}
+        for role, _ in roles if role != "base"
+    }))
 
 
 def measure(work, role):
@@ -103,6 +112,16 @@ def main():
         os.sched_setaffinity(0, {cpu})
         model = next(line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines()
                      if line.startswith("model name"))
+        if (work / "bad").exists():
+            global DRIVERS, CASES
+            old_drivers, old_cases = DRIVERS, CASES
+            DRIVERS = ["serde"]
+            CASES = {"serde": [case for case in old_cases["serde"] if "/serialize_" in case]}
+            orders = [("base", "bad", "head"), ("bad", "head", "base"), ("head", "base", "bad"),
+                      ("head", "bad", "base"), ("bad", "base", "head"), ("base", "head", "bad")]
+            control = [{role: measure(work, role) for role in order} for order in orders]
+            (REPORT / "positive.json").write_text(json.dumps({"cpu": model, "blocks": control}))
+            DRIVERS, CASES = old_drivers, old_cases
         data = {"base": BASE, "head": HEAD, "cpu": model, "core": cpu,
                 "lto": os.environ["CARGO_PROFILE_BENCH_LTO"], "blocks": []}
         for order in ["bhhb", "hbbh", "hbbh", "bhhb"] * 3:
