@@ -23,6 +23,8 @@ jobs:
           - {os: ubuntu-22.04, lto: thin, replica: 1}
           - {os: ubuntu-22.04, lto: "false", replica: 1}
           - {os: ubuntu-24.04, lto: "false", replica: 1}
+          - {os: ubuntu-24.04, lto: thin, replica: 3, intel: "yes"}
+          - {os: ubuntu-22.04, lto: thin, replica: 2, intel: "yes"}
     env:
       CARGO_PROFILE_BENCH_LTO: ${{ matrix.lto }}
     steps:
@@ -34,7 +36,15 @@ jobs:
         with:
           toolchain: 1.95.0
       - name: Compare 2.0 and the exact candidate on one CPU with previous regression as a control
-        run: python3 .github/release-timing/compare.py
+        env:
+          INTEL_ONLY: ${{ matrix.intel }}
+        run: |
+          if [[ "$INTEL_ONLY" == "yes" ]] && ! grep -q GenuineIntel /proc/cpuinfo; then
+            mkdir -p release-report
+            echo '{"skipped":"extra Intel-only sample on a non-Intel host"}' > release-report/runner.json
+          else
+            python3 .github/release-timing/compare.py
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
